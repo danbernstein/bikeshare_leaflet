@@ -1,18 +1,26 @@
 library(shiny)
 library(lubridate)
-library(dplyr)
+library(tidyverse)
 library(ggplot2)
 library(reshape2)
 library(readr)
 library(leaflet)
 library(sp)
 library(stplanr)
+library(plyr)
 
 rides <-read_csv("https://raw.githubusercontent.com/danbernstein/bikeshare_leaflet/master/data1/full_count.csv")
 
 bikestations_data_raw <-read_csv("https://raw.githubusercontent.com/danbernstein/bikeshare_leaflet/master/data1/stations_locations.csv")
 
-unique <- read_csv("https://raw.githubusercontent.com/danbernstein/bikeshare_leaflet/master/data1/aggregateddailytrips.csv")
+unique <- read_csv("https://raw.githubusercontent.com/danbernstein/bikeshare_leaflet/master/data1/aggregateddailytrips.csv") %>% 
+  select(-X1)
+
+
+
+unique <- plyr::count(unique,
+                      .(Start.station.number, End.station.number, start.lat, start.lon, end.lat, end.lon))
+unique <- unique[order(-unique$freq),]
 
 doit <- function(odf){
   odf$ID <- seq.int(nrow(odf))
@@ -106,7 +114,7 @@ server <- function(input, output, session) {
  
   reactiveDF5 <- reactive({return((unique) %>% 
                                     filter(Start.station.number == input$Start.station.number) %>% 
-                                    top_n(., n = 3) %>% 
+                                    top_n(., n = 1) %>% 
                                     doit() )})
    
 output$stationPlot <- renderPlot({
