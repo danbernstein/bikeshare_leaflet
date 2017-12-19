@@ -5,11 +5,31 @@ library(ggplot2)
 library(reshape2)
 library(readr)
 library(leaflet)
+library(sp)
+library(stplanr)
 
 rides <-read_csv("https://raw.githubusercontent.com/danbernstein/bikeshare_leaflet/master/data1/full_count.csv")
 
 bikestations_data_raw <-read_csv("https://raw.githubusercontent.com/danbernstein/bikeshare_leaflet/master/data1/stations_locations.csv")
 
+unique <- read_csv("https://raw.githubusercontent.com/danbernstein/bikeshare_leaflet/master/data1/aggregateddailytrips.csv")
+
+doit <- function(odf){
+  odf$ID <- seq.int(nrow(odf))
+  
+  l <- vector("list", nrow(odf))
+  for(i in 1:nrow(odf)){
+    o = c(odf$start.lon[i], odf$start.lat[i])
+    d = c(odf$end.lon[i], odf$end.lat[i])
+    l[[i]] <- sp::Lines(list(sp::Line(rbind(o, d))), as.character(i))
+  }
+  
+  l <- sp::SpatialLines(l)
+  proj4string(l) <- CRS("+init=epsg:4326")
+  l <- SpatialLinesDataFrame(l, odf, match.ID = "ID")
+  
+  routes_fast <- line2route(l = l, route_fun = route_osrm)
+}
 
 
 bikestations_data <- bikestations_data_raw %>% 
@@ -19,7 +39,8 @@ bikestations_data <- bikestations_data_raw %>%
   select(-LONGITUDE, -LATITUDE)
 
 bikes <- list(bikestations_data,
-              rides)
+              rides, 
+              unique)
 
 rideData <- bikes[[2]] %>% 
   select(-X1) %>% 
@@ -37,7 +58,7 @@ ui <- bootstrapPage(
     tags$style(type = "text/css", "html, body {width:100%;height:100%}"),
     leafletOutput("leaflet", width = "100%", height = "100%"),
     absolutePanel(id = "controls", class = "panel panel-default", fixed = TRUE,
-                  draggable = TRUE, top = 40, left = "auto", right = 20, bottom = "auto",
+                  draggable = TRUE, top = 50, left = "auto", right = 20, bottom = "auto",
                   width = 400, height = "auto", 
                 selectInput("Start.station.number", 
                     label = "Station:",
@@ -45,7 +66,7 @@ ui <- bootstrapPage(
                     selected = "31000"),
                     plotOutput("stationPlot", height = 200),
                     style = "opacity: 0.95"),
-    absolutePanel(top =10, right = 10,
+    absolutePanel(top =5, right = 10,
                     width = 400, height = "auto", 
                       verbatimTextOutput("Click_text"))
 )
@@ -62,6 +83,8 @@ rideData <- bikes[[2]] %>%
   melt(id.vars = c("Start.station.number", "starthour")) 
 
 stationname <- bikes[[1]]
+
+unique <- bikes[[3]]
 
 
 
@@ -81,7 +104,12 @@ server <- function(input, output, session) {
   reactiveDF4 <- reactive({return((merged2) %>% 
                                     filter(Start.station.number == input$Start.station.number) )}) 
  
-   output$stationPlot <- renderPlot({
+  reactiveDF5 <- reactive({return((unique) %>% 
+                                    filter(Start.station.number == input$Start.station.number) %>% 
+                                    top_n(., n = 3) %>% 
+                                    doit() )})
+   
+output$stationPlot <- renderPlot({
     
     print(ggplot(data = reactiveDF(), aes_string(x = "starthour", y = "value", 
                                                  fill = "variable"))+
@@ -126,7 +154,8 @@ server <- function(input, output, session) {
                        fillOpacity = 0,
                    #   popup = ~as.character(TERMINAL_NUMBER),
                        label = ~as.character(ADDRESS),
-                       layerId = ~as.character(TERMINAL_NUMBER))# %>% 
+                       layerId = ~as.character(TERMINAL_NUMBER)) %>% 
+      addPolylines(data = reactiveDF5(), color = "red")
    #   addCircles(data = merged1,
    #                radius = 0.1,
    #                color = "green",
@@ -143,6 +172,8 @@ server <- function(input, output, session) {
      output$Click_text <- renderText({
        text2})
        
+  
+     
   observeEvent(input$Start.station.number,{
        updateSelectInput(session, "Start.station.number", label = "Station:",
                          choices = c(unique(rides$Start.station.number)),
@@ -155,7 +186,7 @@ server <- function(input, output, session) {
      updateSelectInput(session, "Start.station.number", label = "Station:",
                        choices = c(unique(rides$Start.station.number)),
                        selected = c(input$Start.station.number, station))
-                       
+                 
     })
 
   })
