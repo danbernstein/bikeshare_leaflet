@@ -3,10 +3,26 @@ library(lubridate)
 library(dplyr)
 library(ggplot2)
 library(reshape2)
+library(readr)
+library(leaflet)
 
+rides <-read_csv("https://raw.githubusercontent.com/danbernstein/bikeshare_leaflet/master/data1/full_count.csv")
+
+bikestations_data_raw <-read_csv("https://raw.githubusercontent.com/danbernstein/bikeshare_leaflet/master/data1/stations_locations.csv")
+
+
+
+bikestations_data <- bikestations_data_raw %>% 
+  select(c("ADDRESS", "TERMINAL_NUMBER", "LONGITUDE", "LATITUDE")) %>% 
+  mutate(long = LONGITUDE,
+         lat = LATITUDE) %>% 
+  select(-LONGITUDE, -LATITUDE)
+
+bikes <- list(bikestations_data,
+              rides)
 
 rideData <- bikes[[2]] %>% 
-  select(-X) %>% 
+  select(-X1) %>% 
   mutate(inflow = freq.y,
          outflow = freq.x) %>% 
   mutate(net = outflow - inflow,
@@ -36,7 +52,7 @@ ui <- bootstrapPage(
 
 
 rideData <- bikes[[2]] %>% 
-  select(-X) %>% 
+  select(-X1) %>% 
   mutate(inflow = freq.y,
          outflow = freq.x) %>% 
   mutate(net = outflow - inflow,
