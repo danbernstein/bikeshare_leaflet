@@ -9,20 +9,33 @@ library(sp)
 library(stplanr)
 library(plyr)
 
-rides <-read_csv("https://raw.githubusercontent.com/danbernstein/bikeshare_leaflet/master/data1/full_count.csv")
 
+##data 
+
+##for individual station inflow and outflow for ggplot
+inflow_outflow_bystation <-read_csv("https://raw.githubusercontent.com/danbernstein/bikeshare_leaflet/master/data1/fullyear_keypair_aggregated_byhour.csv")
+
+flows.data <- inflow_outflow_bystation %>% 
+  mutate(inflow = freq.y,
+         outflow = freq.x) %>% 
+  select(-freq.y) %>% 
+  select(-freq.x) %>% 
+  melt(id.vars = c("Start.station.number", "starthour")) 
+
+##for selecting individual stations on the map
 bikestations_data_raw <-read_csv("https://raw.githubusercontent.com/danbernstein/bikeshare_leaflet/master/data1/stations_locations.csv")
 
-unique <- read_csv("https://raw.githubusercontent.com/danbernstein/bikeshare_leaflet/master/data1/aggregateddailytrips.csv") %>% 
-  select(-X1)
+bikestations_data <- bikestations_data_raw %>% 
+  select(c("ADDRESS", "TERMINAL_NUMBER", "LONGITUDE", "LATITUDE")) %>% 
+  mutate(long = LONGITUDE,
+         lat = LATITUDE) %>% 
+  select(-LONGITUDE, -LATITUDE)
 
+##for mapping the routesb between staations
+keypairs_latlon <- read_csv("https://raw.githubusercontent.com/danbernstein/bikeshare_leaflet/master/data1/fullyear_keypair_lonlat.csv") 
+keypairs_latlon <- keypairs_latlon[order(-keypairs_latlon$freq),]
 
-
-unique <- plyr::count(unique,
-                      .(Start.station.number, End.station.number, start.lat, start.lon, end.lat, end.lon))
-unique <- unique[order(-unique$freq),]
-
-doit <- function(odf){
+routing_function <- function(odf){
   odf$ID <- seq.int(nrow(odf))
   
   l <- vector("list", nrow(odf))
@@ -40,38 +53,23 @@ doit <- function(odf){
 }
 
 
-bikestations_data <- bikestations_data_raw %>% 
-  select(c("ADDRESS", "TERMINAL_NUMBER", "LONGITUDE", "LATITUDE")) %>% 
-  mutate(long = LONGITUDE,
-         lat = LATITUDE) %>% 
-  select(-LONGITUDE, -LATITUDE)
-
-bikes <- list(bikestations_data,
-              rides, 
-              unique)
-
-rideData <- bikes[[2]] %>% 
-  select(-X1) %>% 
-  mutate(inflow = freq.y,
-         outflow = freq.x) %>% 
-  mutate(net = outflow - inflow,
-         sum = outflow + inflow) %>% 
-  select(-freq.y) %>% 
-  select(-freq.x) %>% 
-  melt(id.vars = c("Start.station.number", "starthour")) 
-
-
-
 ui <- bootstrapPage(
     tags$style(type = "text/css", "html, body {width:100%;height:100%}"),
     leafletOutput("leaflet", width = "100%", height = "100%"),
     absolutePanel(id = "controls", class = "panel panel-default", fixed = TRUE,
-                  draggable = TRUE, top = 50, left = "auto", right = 20, bottom = "auto",
+                  draggable = TRUE, top = 55, left = "auto", right = 10, bottom = "auto",
                   width = 400, height = "auto", 
                 selectInput("Start.station.number", 
                     label = "Station:",
-                    choices = c(unique(rides$Start.station.number)),
+                    choices = c(unique(inflow_outflow_bystation$Start.station.number)),
                     selected = "31000"),
+                sliderInput("routes", 
+                             label = "Number of Mapped Routes:",
+                             min = 1,
+                             max = 5,
+                            value = 3,
+                            step = 1,
+                            animate = T),
                     plotOutput("stationPlot", height = 200),
                     style = "opacity: 0.95"),
     absolutePanel(top =5, right = 10,
@@ -80,20 +78,21 @@ ui <- bootstrapPage(
 )
 
 
-rideData <- bikes[[2]] %>% 
-  select(-X1) %>% 
+flows.data <- inflow_outflow_bystation %>% 
   mutate(inflow = freq.y,
          outflow = freq.x) %>% 
-  mutate(net = outflow - inflow,
-         sum = outflow + inflow) %>% 
   select(-freq.y) %>% 
   select(-freq.x) %>% 
   melt(id.vars = c("Start.station.number", "starthour")) 
 
-stationname <- bikes[[1]]
+keypairs_latlon <- read_csv("https://raw.githubusercontent.com/danbernstein/bikeshare_leaflet/master/data1/fullyear_keypair_lonlat.csv") 
+keypairs_latlon <- keypairs_latlon[order(-keypairs_latlon$freq),]
 
-unique <- bikes[[3]]
-
+bikestations_data <- bikestations_data_raw %>% 
+  select(c("ADDRESS", "TERMINAL_NUMBER", "LONGITUDE", "LATITUDE")) %>% 
+  mutate(long = LONGITUDE,
+         lat = LATITUDE) %>% 
+  select(-LONGITUDE, -LATITUDE)
 
 
 
@@ -101,47 +100,46 @@ unique <- bikes[[3]]
 server <- function(input, output, session) {
   
   
-  reactiveDF <- reactive({return((rideData) %>% 
-                                 filter(rideData$Start.station.number == input$Start.station.number))})
+  reactiveDF <- reactive({return((flows.data) %>% 
+                                 filter(flows.data$Start.station.number == input$Start.station.number))})
 
-  reactiveDF2 <- reactive({return((bikes[[1]]) %>% 
+  reactiveDF2 <- reactive({return((bikestations_data) %>% 
                                   filter(TERMINAL_NUMBER == input$Start.station.number) )}) 
-  reactiveDF3 <- reactive({return((bikes[[1]]) %>% 
+  reactiveDF3 <- reactive({return((bikestations_data) %>% 
                                   filter(TERMINAL_NUMBER != input$Start.station.number) )}) 
 
-  reactiveDF4 <- reactive({return((merged2) %>% 
-                                    filter(Start.station.number == input$Start.station.number) )}) 
- 
-  reactiveDF5 <- reactive({return((unique) %>% 
-                                    filter(Start.station.number == input$Start.station.number) %>% 
-                                    top_n(., n = 1) %>% 
-                                    doit() )})
+  reactiveDF5 <- reactive({return((keypairs_latlon) %>% 
+                                    filter(Start.station.number == input$Start.station.number,
+                                           Start.station.number != End.station.number) %>% 
+                                    arrange(desc(as.numeric(freq))) %>% 
+                                    slice(1:input$routes) %>% 
+                                    as.data.frame() %>% 
+                                    routing_function() )})
    
 output$stationPlot <- renderPlot({
     
     print(ggplot(data = reactiveDF(), aes_string(x = "starthour", y = "value", 
                                                  fill = "variable"))+
             geom_bar(stat = "identity", width = 1, alpha = 0.5)+
-            geom_vline(xintercept=hour(Sys.time()), col = "brown")+
+            geom_vline(xintercept=hour(as.POSIXct(Sys.time(), tz = "EST")), col = "brown")+
             labs(x = "Hour", y = "Number of Rides", 
-                 title = "Rides Inflow and Outflow by Station")+
-            guides(fill=guide_legend(title="Flows"))+
-            xlim(0,24))
-   
+                 title = "Station Inflow and Outflow Throughout The Day")+
+            guides(fill=guide_legend(title=element_blank()))+
+            scale_x_continuous(limits=c(0, 24), expand = c(0, 0)) )
+  output$dayplot <- renderPlot({
+    print(ggplot(data = me, mapping = aes(x = startdate, y = net))+
+        geom_line(aes(group = 1))+
+        scale_x_date(date_breaks = "1 month",date_labels = "%b") + xlab("month")  
+    )
+  })
+  
+            
   })
   
   
  output$leaflet <- renderLeaflet({
    leaflet() %>% 
-     setView(-77.06279, 38.91519, 12) %>% ##mean of stations lat and lon
-  #   addTiles() %>% 
-  #   addCircleMarkers(data = bikes[[1]],
-  #                    radius = 2,
-  #                    color = "blue",
-  #                    fillOpacity = 0,
-  #                    popup = ~as.character(TERMINAL_NUMBER),
-  #                    label = ~as.character(ADDRESS),
-  #                    layerId = ~TERMINAL_NUMBER) %>% 
+     setView(-77.06279, 38.91519, 11) %>% ##mean of stations lat and lon
       addProviderTiles("CartoDB.DarkMatter")
  })
  
@@ -176,7 +174,7 @@ output$stationPlot <- renderPlot({
      if(is.null(click))
        return()
      text <- paste("Lat", click$lat, "Long", click$lng)
-     text2 <- paste("Selected Location:", click$id)
+     text2 <- paste("Selected Location:", bikestations_data[which(bikestations_data$TERMINAL_NUMBER == click$id),]$ADDRESS)
      output$Click_text <- renderText({
        text2})
        
@@ -184,7 +182,7 @@ output$stationPlot <- renderPlot({
      
   observeEvent(input$Start.station.number,{
        updateSelectInput(session, "Start.station.number", label = "Station:",
-                         choices = c(unique(rides$Start.station.number)),
+                         choices = c(unique(inflow_outflow_bystation$Start.station.number)),
                          selected = c(input$Start.station.number))
      })
      
@@ -192,20 +190,15 @@ output$stationPlot <- renderPlot({
      click <- input$leaflet_marker_click
      station <- bikestations_data[which(bikestations_data$TERMINAL_NUMBER == input$leaflet_marker_click$id),]$TERMINAL_NUMBER
      updateSelectInput(session, "Start.station.number", label = "Station:",
-                       choices = c(unique(rides$Start.station.number)),
+                       choices = c(unique(inflow_outflow_bystation$Start.station.number)),
                        selected = c(input$Start.station.number, station))
                  
     })
 
   })
  
-
-
-  
-  
   }
   
-
 
 
 shinyApp(ui, server)
