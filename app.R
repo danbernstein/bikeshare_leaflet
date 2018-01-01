@@ -1,35 +1,27 @@
 ##load packages----
 library(shiny)
+library(leaflet)
 library(lubridate)
-library(tidyverse)
+library(dplyr)
 library(ggplot2)
 library(reshape2)
 library(readr)
-library(leaflet)
 library(sp)
 library(stplanr)
 library(plyr)
-#library(dygraphs)
+library(ggmap)
+library(rgdal)
 
 
 ##data ----
-
-##the shiny.io app.R file is old, with the GitHub directories to the data files incorrect since renaming
-##think about having two tabs, one is just the full map with controls, the other a split screen with access to dygraph data
-##or maybe on the same page but you scroll down for split screen
-
-
 ##for individual station inflow and outflow for ggplot
-flows.data <-read_csv("https://raw.githubusercontent.com/danbernstein/bikeshare_leaflet/master/data/flows.data.csv")
+flows.data <-read_csv("https://raw.githubusercontent.com/danbernstein/capitalbikeshareviz/master/data/flows.data.csv")
 
-##inflow outflow for dygraph
-#dygraph_inputs <- read_csv("https://raw.githubusercontent.com/danbernstein/bikeshare_leaflet/master/data/dygraph_inputs.csv")
-#dygraph_inputs = ok
 ###for selecting individual stations on the map
-bikestations_data <-read_csv("https://raw.githubusercontent.com/danbernstein/bikeshare_leaflet/master/data/bikestations_data.csv")
+bikestations_data <-read_csv("https://raw.githubusercontent.com/danbernstein/capitalbikeshareviz/master/data/bikestations_data.csv")
 
 ###for mapping the routesb between staations
-keypairs_latlon <- read_csv("https://raw.githubusercontent.com/danbernstein/bikeshare_leaflet/master/data/keypairs_latlon.csv") 
+keypairs_latlon <- read_csv("https://raw.githubusercontent.com/danbernstein/capitalbikeshareviz/master/data/keypairs_latlon.csv") 
 
 routing_function <- function(odf){
   odf$ID <- seq.int(nrow(odf))
@@ -49,21 +41,21 @@ routing_function <- function(odf){
 }
 
 ##ui----
-ui <- navbarPage("bikeshareviz", id = "nav", theme = "styles.css",
-    #tags$style(type = "text/css", "html, body {width:100%;height:100%}"),
-    tabPanel("Interactive map",
-             div(class = "outer",
-                 
-                 tags$head(
-                   includeCSS("/Users/Daniel/Documents/Bikeshare Data/Shiny/www/styles.css")
-                 ),
+ui <- navbarPage("bikeshareviz", id = "nav", theme = "https://raw.githubusercontent.com/danbernstein/capitalbikeshareviz/master/styles.css",
+    tabPanel("Interactive map", 
+           div(class = "outer",
+              
+              tags$head(
+                includeCSS("https://raw.githubusercontent.com/danbernstein/capitalbikeshareviz/master/styles.css")
+                        ),
                 
     leafletOutput("leaflet", width = "100%", height = "100%"),
+    
     absolutePanel(id = "controls", class = "panel panel-default", fixed = TRUE,
-                  draggable = TRUE, top = "15%", left = "auto", right = "2%", bottom = "auto",
+                  draggable = TRUE, top = "20%", left = "auto", right = "3%", bottom = "auto",
                   width = "37%", height = "auto", opacity = 0.4,
                   
-                  h2("Capital Bikeshare Historical Data"),
+                  h2("Historical Data"),
                selectInput("Start.station.number", 
                    label = "Station:",
                    choices = c(unique(flows.data$Start.station.number)),
@@ -72,27 +64,57 @@ ui <- navbarPage("bikeshareviz", id = "nav", theme = "styles.css",
                              "Is the station the origin or the destination?",
                              c("Origin" = "Origin",
                                "Destination" = "Destination"
-                               )),
+                               )
+                             ),
                 sliderInput("routes", 
                              label = "Number of Most-Travelled Routes:",
                              min = 1,
                              max = 10,
                             value = 3,
                             step = 1,
-                            animate = T),
-                  plotOutput("stationPlot", height = 200)),
-    absolutePanel(top = "2%", right = "2%",
+                            animate = T
+                            ),
+                  plotOutput("stationPlot", height = 200)
+               ),
+    absolutePanel(top = "5%", right = "3%",
                     width = "50%", height = "auto", 
-                      verbatimTextOutput("Click_text")),
+                      verbatimTextOutput("Click_text")
+                  ),
     absolutePanel(top = "2%", left = "5%", width = 175, draggable = FALSE,
                   selectInput("bmap", label = NULL,
                               choices = c("CartoDB.Positron",
                                           "CartoDB.DarkMatter",
-                                          "Stamen"),
-                              selected = "CartoDB.Positron"))
+                                          "Stamen"
+                                          ),
+                              selected = "CartoDB.Positron"
+                              )
+                  )
+      )
+    )#,
   
-      ) ))
-    
+   # tabPanel("Codevelopment", 
+   #          div(class = "outer",
+   #              
+   #              tags$head(
+   #                includeCSS("/Users/Daniel/Documents/Bikeshare Data/Shiny/www/styles.css")
+   #                       ),
+   #     mainPanel(
+   #       leafletOutput("leaflet2", width = "1000", height = "500"),
+   #       absolutePanel(width = "400", height = "600", top = "10%", right = "10%", 
+   #                        draggable = T,
+   #                        sliderInput("YEAR", 
+   #                                    "Year:",
+   #                                    c(unique(stations_firstuse$YEAR)),
+   #                                    min = 2009,
+   #                                    max = 2016,
+   #                                    value = 2009, 
+   #                                    step = 1,
+   #                                    sep = "",
+   #                                    animate =  animationOptions(interval = 1200)
+   #                                    )
+   #                        )
+   #          ) 
+    )#))
 
 ##server----
 server <- function(input, output, session) {
@@ -105,48 +127,27 @@ server <- function(input, output, session) {
                                   filter(TERMINAL_NUMBER == input$Start.station.number) )}) 
   reactiveDF3 <- reactive({return((bikestations_data) %>% 
                                   filter(TERMINAL_NUMBER != input$Start.station.number) )}) 
-
-  #reactive.dygraph <- reactive({return((dygraph_inputs) %>% 
-  #                                       filter(Start.station.number == input$leaflet_marker_click$id |
-  #                                                End.station.number == input$leaflet_marker_click$id) %>%
-  #                                       mutate(Month = as.POSIXct(Month)) %>%                                          
-  #                                       group_by(Month) %>%  ##here is the grouping variable to use
-  #                                       dplyr::summarize(freq.start = sum(Start.station.number == input$leaflet_marker_click$id),
-  #                                                        freq.end = sum(End.station.number == input$leaflet_marker_click$id)) %>% 
-  #                                       timetk::tk_xts(start = 2016, freq = 12))
-#
-  #})
   
-  reactive_bikeroutes <- reactive({
+    reactive_bikeroutes <- reactive({
     if(input$Origin == "Origin"){
-    return((keypairs_latlon) %>% 
-        filter(Start.station.number == input$Start.station.number,
-        Start.station.number != End.station.number) %>% 
-        arrange(desc(as.numeric(freq))) %>% 
-        slice(1:input$routes) %>% 
-        as.data.frame() %>% 
-        routing_function())}
+      return((keypairs_latlon) %>% 
+               filter(Start.station.number == input$Start.station.number,
+                      Start.station.number != End.station.number) %>% 
+               arrange(desc(as.numeric(freq))) %>% 
+               slice(1:input$routes) %>% 
+               as.data.frame() %>% 
+               routing_function())}
     else{
       return((keypairs_latlon) %>% 
-              filter(End.station.number == input$Start.station.number,
-              Start.station.number != End.station.number) %>% 
-              arrange(desc(as.numeric(freq))) %>% 
-              slice(1:input$routes) %>% 
-              as.data.frame() %>% 
-              routing_function()) }
-                                        })
-                                        
+               filter(End.station.number == input$Start.station.number,
+                      Start.station.number != End.station.number) %>% 
+               arrange(desc(as.numeric(freq))) %>% 
+               slice(1:input$routes) %>% 
+               as.data.frame() %>% 
+               routing_function()) }
+  })
   
-#reactive_bikeroutes <- 
-#   reactive({
-#  return((keypairs_latlon) %>% 
-#                                          filter(End.station.number == input$Start.station.number,
-#                                                 Start.station.number != End.station.number) %>% 
-#                                          arrange(desc(as.numeric(freq))) %>% 
-#                                          slice(1:input$routes) %>% 
-#                                          as.data.frame() %>% 
-#                                          routing_function() )})
-#   
+
 output$stationPlot <- renderPlot({
 ###ggplot ----    
    print(ggplot(data = reactiveDF(), aes_string(x = "starthour", y = "value", 
@@ -161,20 +162,11 @@ output$stationPlot <- renderPlot({
                  axis.title = element_text(size = 12, face = "bold"),
                  legend.position = c(0.12,0.82)                      
                  ))
-#  output$dayplot <- renderPlot({
-#    print(ggplot(data = me, mapping = aes(x = startdate, y = net))+
-#        geom_line(aes(group = 1))+
-#        scale_x_date(date_breaks = "1 month",date_labels = "%b") + xlab("month")  
-#    )
-#  })
-  
-            
   })
 
-  
 output$leaflet <- renderLeaflet({
    leaflet() %>% 
-     setView(-76.9566191, 38.899584, 11)# %>% ##mean of stations lat and lon
+     setView(-76.9566191, 38.899584, 11) ##mean of stations lat and lon
  })
  
   observe({
@@ -186,24 +178,16 @@ output$leaflet <- renderLeaflet({
                        radius = 5,
                        color = "red",
                        fillOpacity = 1,
-                     #  popup = ~as.character(TERMINAL_NUMBER),
                        label = ~as.character(ADDRESS),
                        layerId = ~as.character(TERMINAL_NUMBER)) %>% 
       addCircleMarkers(data = reactiveDF3(),
                        radius = 3,
                        color = "blue",
                        fillOpacity = 0,
-                   #   popup = ~as.character(TERMINAL_NUMBER),
                        label = ~as.character(ADDRESS),
                        layerId = ~as.character(TERMINAL_NUMBER)) %>% 
       addPolylines(data = reactive_bikeroutes(), color = "red", 
-                   dashArray = "7") #%>% 
-   #   addPolylines(data = reactive_bikeroutes_destination(), color = "green")
-   #   addCircles(data = merged1,
-   #                radius = 0.1,
-   #                color = "green",
-   #                fillOpacity = 1,
-   #                layerId = ~Start.station.number)
+                   dashArray = "7") 
     })
     
     observe({
@@ -215,8 +199,6 @@ output$leaflet <- renderLeaflet({
      output$Click_text <- renderText({
        text2})
        
-  
-     
   observeEvent(input$Start.station.number,{
        updateSelectInput(session, "Start.station.number", label = "Station:",
                          choices = c(unique(flows.data$Start.station.number)),
@@ -229,15 +211,8 @@ output$leaflet <- renderLeaflet({
     updateSelectInput(session, "Start.station.number", label = "Station:",
                       choices = c(unique(flows.data$Start.station.number)),
                       selected = c(input$Start.station.number, station))
-    
-       
+  
     })
-
-  })
- 
-  }
+  })}
 
 shinyApp(ui, server)
-
-##mlinke station clicks on map to changing the numericinput 
-##add polylines from a clicked station to the top five destinations
